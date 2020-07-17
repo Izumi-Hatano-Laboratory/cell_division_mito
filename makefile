@@ -1,9 +1,9 @@
-FC	= gfortran
-F_OPT	= -mcmodel=medium #-shared-intel -fpic
+FC	= ifort
+F_OPT	= -mcmodel=medium -shared-intel -fpic
 
-.SUFFIXES: .f90 .f .o
+.SUFFIXES: .f90 .o
 
-OBJ_F	= marker_contourOut13.o
+OBJ_F	= marker_contourOut13_analyze.o bmp_out.o #tif_out.o
 
 TARGET_F	= marker
 

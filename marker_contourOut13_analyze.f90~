@@ -12,7 +12,7 @@
 !* ---------------------------------------------------
       implicit none
 
-      integer, parameter :: width=1024, height=1024, depth=400
+      integer, parameter :: width=1024, height=1024, depth=2
       integer :: color(width,height,depth), scolor(width,height,depth), color0(width,height,depth),scolor0(width,height,depth),ncolor(width,height,depth), nmark(width,height,depth),&
            smark(width,height,depth), mark(width,height,depth), cluster(width,height,depth), mask(width,height,depth)
       integer :: nuc, depth2, size_thresh,nclu, nuc1, i, ilarge, x,y,z
@@ -25,8 +25,8 @@
       filehead = './in_txt/' ! mitochondrial region learned
       call read_color(width, height, depth, color, filehead)
 
-!!$      call write_bmp(depth, color, filehead)
-!!$      stop
+      call write_bmp(depth, color, filehead)
+      stop
 
       filehead = './out_txt/'! mitochondrial contour learned
       call read_color(width, height, depth, scolor, filehead)
@@ -38,47 +38,47 @@
       color_thresh = 190
       nuc_thresh   = 240
       
-      call make_scolor(width, height, depth, color, scolor, cristae_thresh, scolor_thresh, color_thresh)
+! c$$$      call make_scolor(width, height, depth, color, scolor, cristae_thresh, scolor_thresh, color_thresh)
+! c$$$
+! c$$$! Subtraction, gausian filtering and extracting nuclear region (making ncolor, but here, 255 or 0)
+! c$$$      call nucleus_extraction(width, height, depth, nuc_thresh, scolor, ncolor, filename)
+! c$$$c      filehead = './nucleus/'
+! c$$$c      call write_color(width, height, depth, ncolor, filehead)
+! c$$$c      call read_color(width, height, depth, ncolor, filehead)
+! c$$$
+! c$$$! Make ncolor colorful (giving each mitocondrion a different color) 
+! c$$$      call nmarker(width, height, depth, ncolor, nmark, nuc, filename)
+! c$$$
+! c$$$      allocate(size(nuc),mito_location(3,nuc))
+! c$$$      size_thresh = 70
+! c$$$      call size_check(nmark, width,height,depth, size_thresh, size, nuc, mito_location)
+! c$$$
+! c$$$c      filehead = './nmark/'
+! c$$$c      call write_color(width, height, depth, nmark, filehead)
+! c$$$c      call read_color(width, height, depth, nmark, filehead)
+! c$$$
+! c$$$! Growing process to subtracted (mitochondria - edge)
+! c$$$      call marker(width, height, depth, scolor, nmark, smark)
+! c$$$c      filehead = './smark/'
+! c$$$c      call write_color(width, height, depth, smark, filehead)
+! c$$$c      call read_color(width, height, depth, smark, filehead)
+! c$$$
+! c$$$! Growing process 3D to mitochondrial region
+! c$$$      call marker(width, height, depth, color, smark, mark)
+! c$$$c      filehead = './mark/'
+! c$$$c      call write_color(width, height, depth, mark, filehead)
+! c$$$c      call read_color(width, height, depth, mark, filehead)
+! c$$$
+! c$$$      size_thresh = 500
+! c$$$      call size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
 
-! Subtraction, gausian filtering and extracting nuclear region (making ncolor, but here, 255 or 0)
-      call nucleus_extraction(width, height, depth, nuc_thresh, scolor, ncolor, filename)
-!c      filehead = './nucleus/'
-!c      call write_color(width, height, depth, ncolor, filehead)
-!c      call read_color(width, height, depth, ncolor, filehead)
-
-! Make ncolor colorful (giving each mitocondrion a different color) 
-      call nmarker(width, height, depth, ncolor, nmark, nuc, filename, 0)
-      allocate(size(nuc),mito_location(3,nuc))
-      size_thresh = 70
-      call size_check(nmark, width,height,depth, size_thresh, size, nuc, mito_location)
-
-      filehead = './nmark/'
-      call write_color(width, height, depth, nmark, filehead)
-!c      call read_color(width, height, depth, nmark, filehead)
-
-! Growing process to subtracted (mitochondria - edge)
-      call marker(width, height, depth, scolor, nmark, smark)
-!c      filehead = './smark/'
-!c      call write_color(width, height, depth, smark, filehead)
-!c      call read_color(width, height, depth, smark, filehead)
-
-! Growing process 3D to mitochondrial region
-      call marker(width, height, depth, color, smark, mark)
-!c      filehead = './mark/'
+      filehead = './mark_txt/'
 !c      call write_color(width, height, depth, mark, filehead)
-!c      call read_color(width, height, depth, mark, filehead)
-
-      size_thresh = 500
-      call size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
-
-      filehead = './mark/'
-      call write_color(width, height, depth, mark, filehead)
-!c      call read_color(width, height, depth, mark, filehead)
+      call read_color(width, height, depth, mark, filehead)
 
 !C# FOR AFTERTREAT
       nuc = maxval(mark)
-      if(.not. allocated(size)) allocate(size(nuc))
-      if(.not. allocated(size)) allocate(mito_location(3,nuc))
+      allocate(size(nuc),mito_location(3,nuc))
       size_thresh = 500
       call size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
 
@@ -139,7 +139,7 @@
 
 ! Growing process 3D to mitochondrial region
       call marker(width, height, depth, color, smark, mark)
-      filehead = './mark_subdivide/'
+      filehead = './mark/'
       call write_bmp(depth, mark, filehead)
 !c      call read_color(width, height, depth, mark, filehead)
 

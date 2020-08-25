@@ -2,21 +2,22 @@
 !*       nucleus out program
 !*       19.02.28
 !*       Programmed by: Hiroaki Tanaka
-!*       Added by: A. H.
+!*       Modified by: A. H.
 !*       Ver8: nuclear coloring is largely changed. Depth First Search
 !*       Ver9: DFS is imposed to smarker and marker
 !*       Ver10: Size check is implemented
 !*       Ver11: Size check and thresholding, for nuclear. fileIO is simplified
 !*       Ver12: discarded  
 !*       Ver13: Cluster analysis, size and cluster file output
+!*       Ver14: Larger mitochondria are sub-divided with new thresholds
 !* ---------------------------------------------------
       implicit none
 
       integer, parameter :: width=1024, height=1024, depth=400
       integer :: color(width,height,depth), scolor(width,height,depth), color0(width,height,depth),scolor0(width,height,depth),ncolor(width,height,depth), nmark(width,height,depth),&
-           smark(width,height,depth), mark(width,height,depth), cluster(width,height,depth), mask(width,height,depth)
-      integer :: nuc, depth2, size_thresh,nclu, nuc1, i, ilarge, x,y,z
-      integer, allocatable :: size(:), mito_location(:,:), size1(:), mito_location1(:,:),mit2clu(:)
+           smark(width,height,depth), mark(width,height,depth), mark0(width,height,depth), cluster(width,height,depth), mask(width,height,depth)
+      integer :: nuc, depth2, size_thresh,nclu, nuc1, i, nsmall, x,y,z, j,k, count
+      integer, allocatable :: size0(:), mito_location(:,:), size1(:), mito_location1(:,:),mit2clu(:), if_cut(:)
       integer :: cristae_thresh, scolor_thresh, color_thresh, nuc_thresh
 
       character(100) filehead, filename
@@ -25,8 +26,8 @@
       filehead = './in_txt/' ! mitochondrial region learned
       call read_color(width, height, depth, color, filehead)
 
-!!$      call write_bmp(depth, color, filehead)
-!!$      stop
+!      call write_bmp(depth, color, filehead)
+!      stop
 
       filehead = './out_txt/'! mitochondrial contour learned
       call read_color(width, height, depth, scolor, filehead)
@@ -48,12 +49,12 @@
 
 ! Make ncolor colorful (giving each mitocondrion a different color) 
       call nmarker(width, height, depth, ncolor, nmark, nuc, filename, 0)
-      allocate(size(nuc),mito_location(3,nuc))
-      size_thresh = 70
-      call size_check(nmark, width,height,depth, size_thresh, size, nuc, mito_location)
+      allocate(size0(nuc),mito_location(3,nuc))
+      size_thresh = 100
+      call size_check(nmark, width,height,depth, size_thresh, size0, 1, nuc, mito_location)
 
-      filehead = './nmark/'
-      call write_color(width, height, depth, nmark, filehead)
+!      filehead = './nmark/'
+!      call write_color(width, height, depth, nmark, filehead)
 !c      call read_color(width, height, depth, nmark, filehead)
 
 ! Growing process to subtracted (mitochondria - edge)
@@ -68,26 +69,29 @@
 !c      call write_color(width, height, depth, mark, filehead)
 !c      call read_color(width, height, depth, mark, filehead)
 
-      size_thresh = 500
-      call size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
+      size_thresh = 2000
+      call size_check(mark, width,height,depth, size_thresh, size0, 1, nuc, mito_location)
+      call sort_by_size(mark, width,height,depth, size0, nuc, mito_location)
 
-      filehead = './mark/'
-      call write_color(width, height, depth, mark, filehead)
+!       filehead = './mark/'
+!       call write_color(width, height, depth, mark, filehead)
 !c      call read_color(width, height, depth, mark, filehead)
 
-!C# FOR AFTERTREAT
-      nuc = maxval(mark)
-      if(.not. allocated(size)) allocate(size(nuc))
-      if(.not. allocated(size)) allocate(mito_location(3,nuc))
-      size_thresh = 500
-      call size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
+!C# FOR Sub Division and Analysis
+!      nuc = maxval(mark)
+!      if(.not. allocated(size)) allocate(size0(nuc))
+!      if(.not. allocated(size)) allocate(mito_location(3,nuc))
+!      size_thresh = 500
+!      call size_check(mark, width,height,depth, size_thresh, size, 1, nuc, mito_location)
+!      call sort_by_size(mark, width,height,depth, size, nuc, mito_location)
 
+      mark0  = mark ! save previous result
       color  = color0
       scolor = scolor0
       cristae_thresh = 200      ! lower, then more fragmented  # original: 220
       scolor_thresh = 220  ! higher,then more fragmented  # original: 220
 !c      color_thresh = 190 ! Do not change, otherwize outer line will be changed.
-      nuc_thresh = 246          ! 240 higher,then more fragmented  # original: 240
+      nuc_thresh = 247          ! 240 higher,then more fragmented  # original: 240
       write(*,*) 'thresholds cristae', cristae_thresh
       write(*,*) 'thresholds scolor ', scolor_thresh
       write(*,*) 'thresholds  color ',  color_thresh
@@ -95,11 +99,14 @@
 
       call make_scolor(width, height, depth, color, scolor, cristae_thresh, scolor_thresh, color_thresh)
 
-      mask = 0                  !mark
-      ilarge = 0
+! make mask 
+! 1:large mito
+! 0:small mito
+      mask = 0
+      nsmall = 0
       do i = 1, nuc
-         if(size(i) .le. 200000)then
-            ilarge = ilarge + 1
+         if(size0(i) .le. 200000)then
+            nsmall = nsmall + 1
          else
             x = mito_location(1,i)
             y = mito_location(2,i)
@@ -107,28 +114,32 @@
             call DFSrenum(mark,mask,x,y,z,width,height,depth,i,1)
          end if
       end do
-      write(*,*) 'over 200000 starts from',ilarge + 1
-      write(*,*) 'Large mitochondria', nuc - ilarge
+      write(*,*) 'over 200000 starts from',nsmall + 1
+      write(*,*) 'Large mitochondria', nuc - nsmall
 
+
+!color and scolor become only non-zero values when mito is large
       call mask_color(width, height, depth, color, scolor, mask)
       
 ! Subtraction, gausian filtering and extracting nuclear region (making ncolor, but here, 255 or 0)
       call nucleus_extraction(width, height, depth, nuc_thresh, scolor, ncolor, filename)
-!!$      filehead = './nucleus/'
-!!$      call write_color(width, height, depth, ncolor, filehead)
-!!$      call write_bmp(depth, ncolor, filehead)
+!      filehead = './nucleus/'
+!      call write_color(width, height, depth, ncolor, filehead)
+!      call write_bmp(depth, ncolor, filehead)
 ! c$$$c      call read_color(width, height, depth, ncolor, filehead)
 ! c$$$
 ! Make ncolor colorful (giving each mitocondrion a different color) 
-      call nmarker(width, height, depth, ncolor, nmark, nuc1, filename, ilarge)
-      write(*,*) 'Large mitochondria',nuc-ilarge,'was re devided into',nuc1-ilarge
+      call nmarker(width, height, depth, ncolor, nmark, nuc1, filename, nsmall)
+      write(*,*) 'Large mitochondria',nuc-nsmall,'was re devided into',nuc1-nsmall
 
       allocate(size1(nuc1),mito_location1(3,nuc1))
       size_thresh = 70
-      call size_check(nmark, width,height,depth, size_thresh, size, nuc1, mito_location1)
+      size1(1:nsmall) = size0(1:nsmall)
+      mito_location1(1:3,1:nsmall) = mito_location(1:3,1:nsmall) ! copy small sized mito
+      call size_check(nmark, width,height,depth, size_thresh, size1, nsmall+1, nuc1, mito_location1)
 ! c$$$
-!!$      filehead = './nmark/'
-!!$      call write_bmp(depth, nmark, filehead)
+!      filehead = './nmark/'
+!      call write_bmp(depth, nmark, filehead)
 ! c$$$c      call read_color(width, height, depth, nmark, filehead)
 ! c$$$
 ! Growing process to subtracted (mitochondria - edge)
@@ -136,37 +147,96 @@
 !c      filehead = './smark/'
 !c      call write_color(width, height, depth, smark, filehead)
 !c      call read_color(width, height, depth, smark, filehead)
+      size_thresh = 1000
+      call size_check(smark, width,height,depth, size_thresh, size1, nsmall+1, nuc1, mito_location1)
 
 ! Growing process 3D to mitochondrial region
-      call marker(width, height, depth, color, smark, mark)
+      call marker(width, height, depth, color, smark, mark) 
+      mask = 1 - mask ! invert the mask, 0:large, 1:small
+      mark = mark + mask*mark0 ! superimpose large subdevided mito (mark) and already devided small mitochondria (mark0)
+      call size_check(mark, width,height,depth, size_thresh, size1, 1, nuc1, mito_location1)
+
       filehead = './mark_subdivide/'
       call write_bmp(depth, mark, filehead)
-!c      call read_color(width, height, depth, mark, filehead)
+      call write_color(width, height, depth, mark, filehead) ! 
 
+!!$      nuc1 = 1106
+!!$      allocate(size1(nuc1),mito_location1(3,nuc1))
+!!$      call read_color(width, height, depth, mark, filehead)
+!!$      call size_check(mark, width,height,depth, size_thresh, size1, 1, nuc1, mito_location1)
+      write(*,*) 'max',maxval(mark),'nuc1',nuc1
+      write(*,*) 'min',minval(mark) !for dbg
+      count = 0
+      ! clean pixcels
+      do k = 1, depth
+         do j = 1, height
+            do i = 1, width
+               if( mark(i, j, k) .gt. nuc1)then
+                  write(*,*) 'error pixel', i,j,k,mark(i,j,k)
+                  count = count + 1
+                  mark(i,j,k) = 0
+               end if
+            end do
+         end do
+      end do
+      write(*,*) 'error num', count
+
+      ! check if the mito is cut by the volume edge, because cut mito should be excluded by the size analysis
+      allocate(if_cut(0:nuc1))
+      call check_if_cut(mark, width, height, depth, if_cut, nuc1)
+      write(*,*) 'if_cut made'
+
+!Cluster Analysis
+      allocate(mit2clu(nuc1))
+      call cluster_analysis(width,height,depth, cluster, nuc1,mark,mito_location1, size1, nclu,mit2clu, if_cut)
+
+      filehead = './cluster/'
+      call write_bmp(depth, cluster, filehead)
+!      call write_color(width, height, depth, cluster, filehead)
+!      call read_color(width, height, depth, mark, filehead)
+      
       open(15,file='mito_size.out')
       write(15,'(10a10)') 'number','size','mit2clu','x','y','z'
-      do i = 1, ilarge
-        write(15,'(10i10)') i,size(i),0,mito_location(1:3,i)
-      end do
-      do i = ilarge+1, nuc1
-        write(15,'(10i10)') i,size1(i),0,mito_location1(1:3,i)
+      do i = 1, nuc1
+        write(15,'(10i10)') i,size1(i),mit2clu(i),mito_location1(1:3,i),if_cut(i)
       end do
       close(15)
 
-      
-!C# FOR AFTERTREAT
-
-!!$c$$$      allocate(clu_size(nuc),mit2clu(nuc))
-!!$c$$$      call cluster_analysis(width,height,depth, cluster, nuc,
-!!$c$$$     $     mark,mito_location, size, nclu,clu_size,mit2clu)
-!!$c$$$
-!!$c$$$      filehead = './cluster/'
-!!$c$$$      call write_color(width, height, depth, cluster, filehead)
-!!$c$$$c      call read_color(width, height, depth, mark, filehead)
-      
       stop
       end program
 
+!################################################################################################################################
+      subroutine check_if_cut(mark, width, height, depth, if_cut, nuc)
+        implicit none
+        integer :: width, height, depth, nuc, mark(width,height,depth), if_cut(0:nuc)
+        integer :: i, j, k
+        if_cut = 0
+        do k = 1, depth
+           do j = 1, height
+              if_cut(mark(    1, j, k)) = 1
+              if_cut(mark(width, j, k)) = 1
+           end do
+        end do
+        do j = 1, height
+           do i = 1, width
+              if_cut(mark( i, j,    1)) = 1
+              if_cut(mark( i, j,depth)) = 1
+           end do
+        end do
+        do k = 1, depth
+           do i = 1, width
+              if_cut(mark( i,      1, k)) = 1
+              if_cut(mark( i, height, k)) = 1
+           end do
+        end do
+!!$      if_cut(mark(      1, 1:height, 1:depth)) = 1
+!!$      if_cut(mark(  width, 1:height, 1:depth)) = 1
+!!$      if_cut(mark(1:width,        1, 1:depth)) = 1
+!!$      if_cut(mark(1:width,   height, 1:depth)) = 1
+!!$      if_cut(mark(1:width, 1:height,       1)) = 1
+!!$      if_cut(mark(1:width, 1:height,   depth)) = 1
+        return
+      end subroutine check_if_cut
 
 !################################################################################################################################
       subroutine read_color(width, height, depth, color, filehead)
@@ -600,18 +670,19 @@
       end
       
 !################################################################################################################################
-      subroutine size_check(mark, width,height,depth, size_thresh, size, nuc, mito_location)
+      subroutine size_check(mark, width,height,depth, size_thresh, size, istart, nuc, mito_location)
       implicit none
 
-      integer :: width, height, depth, mark(width,height,depth), nuc, size(nuc), mito_location(3,nuc), size_thresh, temp(3,nuc)
+      ! istart: mito index is from istart to nuc, size check is done and sorted
+      integer :: width, height, depth, mark(width,height,depth), istart, nuc, size(nuc), mito_location(3,nuc), size_thresh, temp(3,nuc)
       integer :: count, ilabel, ichk(width,height,depth),isize
-      integer :: renum(nuc),turn(nuc)
+      integer :: renum(nuc)
       integer :: x, y, z, i, j, k
       character(100) :: filename
       character(3) :: str
 
       ichk = 0
-      do ilabel = 1, nuc
+      do ilabel = istart, nuc
       do z = 1, depth
       do y = 1, height
       do x = 1, width
@@ -630,8 +701,8 @@
       end do
 
       renum = 0
-      count = 0
-      do i = 1, nuc
+      count = istart-1
+      do i = istart, nuc
          if(size(i) .ge. size_thresh)then
             count = count + 1
             renum(i) = count
@@ -653,7 +724,7 @@
       end do
       end do
       end do
-      do i = 1, nuc
+      do i = istart, nuc
          if(renum(i) .ne. 0)then
             mito_location(1:3,renum(i))=mito_location(1:3,i)
             size(renum(i))=size(i)
@@ -661,6 +732,14 @@
       end do
       nuc = count
 
+      return
+      end
+
+      subroutine sort_by_size(mark, width,height,depth, size, nuc, mito_location)
+      implicit none
+      integer :: width, height, depth, mark(width,height,depth), nuc, size(nuc), mito_location(3,nuc), temp(3,nuc)
+      integer :: renum(nuc),turn(nuc)
+      integer :: x, y, z, i, j, k
 !     SORT by SIZE
       renum = 0
       call heapsort2(nuc, size, turn)
@@ -860,6 +939,7 @@
          return
       else if(mark(x,y,z) .eq. ilabel)then !if not visited the very mitochondrion
          ichk(x,y,z) = irenum
+         mark(x,y,z) = 0
          call DFSrenum(mark,ichk,x+1,y,z,w, h, d, ilabel,irenum)
          call DFSrenum(mark,ichk,x-1,y,z,w, h, d, ilabel,irenum)
          call DFSrenum(mark,ichk,x,y+1,z,w, h, d, ilabel,irenum)
@@ -872,13 +952,13 @@
       end
       
 !#######################################################################################################################################
-      subroutine cluster_analysis(width,height,depth,cluster,nuc, mark,mit_loc, size, nclu,clu_size,mit2clu)
+      subroutine cluster_analysis(width,height,depth,cluster,nuc, mark,mit_loc, msize, nclu,mit2clu, if_cut)
       implicit none
-      integer :: width, height, depth, nuc, mit_loc(3,nuc), mark(width,height,depth),size(nuc)
+      integer :: width, height, depth, nuc, mit_loc(3,nuc), mark(width,height,depth),msize(nuc)
 
-      integer :: x,y,z, i,j,kmit, ilabel, nclu, icluster, mxnmit
+      integer :: x,y,z, i,j,kmit, ilabel, nclu, icluster, mxnmit, if_cut(0:nuc)
       integer :: cluster(width,height,depth),isize, clu_size(nuc),mit2clu(nuc), clu_nmit(nuc)
-      integer :: ave_all, ave(nuc), sum_vol, tot_vol
+      integer :: ave_all, ave_uncut, ave(nuc), sum_vol_all, sum_vol_uncut, tot_vol
       integer, allocatable :: clu2mit(:,:)
 
       cluster=-mark
@@ -913,37 +993,47 @@
       end do
       allocate(clu2mit(mxnmit,nclu))
 
+      sum_vol_uncut = 0
       clu_nmit = 0
       do i = 1, nuc
          icluster = mit2clu(i)
          clu_nmit(icluster) = clu_nmit(icluster) + 1
          clu2mit(clu_nmit(icluster),icluster)=i
+         if(if_cut(i) .eq. 0)then
+            sum_vol_uncut = sum_vol_uncut + msize(i)
+         end if
       end do
 
-      sum_vol = 0
+      sum_vol_all = 0
       ave = 0
 
       do i = 1, nclu
-         sum_vol = sum_vol + clu_size(i)
+         sum_vol_all = sum_vol_all + clu_size(i)
          ave(i) = clu_size(i)/clu_nmit(i)
       end do
-      ave_all = sum_vol/nuc
+      ave_all = sum_vol_all/nuc
+      ave_uncut = sum_vol_uncut / (nuc - sum(if_cut))
       tot_vol = width*height*depth
 
       write(*,*) 'mitochondria number', nuc
+      write(*,*) 'mitochondria number uncut', nuc - sum(if_cut)
       write(*,*) 'cluster num', nclu
+      write(*,*) 'averaged msize', ave_all
+      write(*,*) 'averaged uncut msize', ave_uncut
 
       open(15,file='mito_size.out')
-      write(15,'(10a10)') 'number','size','mit2clu','x','y','z'
+      write(15,'(10a10)') 'number','msize','mit2clu','x','y','z'
       do i = 1, nuc
-        write(15,'(10i10)') i,size(i),mit2clu(i),mit_loc(1:3,i)
+        write(15,'(10i10)') i,msize(i),mit2clu(i),mit_loc(1:3,i)
       end do
       close(15)
 
       open(16,file='cluster.out')
       write(16,*) 'mitochondria number', nuc
-      write(16,*) 'averaged size', ave_all
-      write(16,*) 'total mit volume, fraction', sum_vol, sum_vol/tot_vol ! calculated by pixel number
+      write(*,*) 'mitochondria number uncut', nuc - sum(if_cut)
+      write(16,*) 'averaged msize', ave_all
+      write(16,*) 'averaged uncut msize', ave_uncut
+      write(16,*) 'total mit volume, fraction', sum_vol_all, sum_vol_all/tot_vol ! calculated by pixel number
       write(16,*) ''
       write(16,*) 'cluster analysis'
       write(16,*) 'cluster num', nclu

@@ -114,7 +114,7 @@
 !!$      real    :: x(nx), y(ny)
 !!$      complex :: c(nx, ny)
 
-         forall (iy = 1:ny) color(1:nx,iy) = mod(mark(1:nx,ny-iy+1,k),255)
+         forall (iy = 1:ny) color(1:nx,iy) = min(mod(mark(1:nx,ny-iy+1,k),255)+1,mark(1:nx,ny-iy+1,k))
 !!$         color = transpose(color)
          bmp%rgb = to_rgb(color, color, color)
 !!$         bmp%rgb = to_rgb(mark(:,:,k) , mark(:,:,k) ,mark(:,:,k))

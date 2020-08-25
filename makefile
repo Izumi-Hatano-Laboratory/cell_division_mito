@@ -3,7 +3,7 @@ F_OPT	= -mcmodel=medium -shared-intel -fpic
 
 .SUFFIXES: .f90 .o
 
-OBJ_F	= marker_contourOut13_analyze.o bmp_out.o #tif_out.o
+OBJ_F	= marker_contourOut14.o bmp_out.o #tif_out.o
 
 TARGET_F	= marker
 

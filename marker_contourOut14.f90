@@ -11,14 +11,24 @@
 !*       Ver13: Cluster analysis, size and cluster file output
 !*       Ver14: Larger mitochondria are sub-divided with new thresholds
 !* ---------------------------------------------------
+  program main
+      use jacobi
       implicit none
-
-      integer, parameter :: width=1024, height=1024, depth=400
+      integer, parameter :: width=1024, height=1024, depth=40
       integer :: color(width,height,depth), scolor(width,height,depth), color0(width,height,depth),scolor0(width,height,depth),ncolor(width,height,depth), nmark(width,height,depth),&
-           smark(width,height,depth), mark(width,height,depth), mark0(width,height,depth), cluster(width,height,depth), mask(width,height,depth)
-      integer :: nuc, depth2, size_thresh,nclu, nuc1, i, nsmall, x,y,z, j,k, count
+           smark(width,height,depth), mark(width,height,depth), mark0(width,height,depth), cluster(width,height,depth), mask(width,height,depth), edge(width,height,depth)
+      integer :: nuc, depth2, size_thresh,nclu, nuc1, i, nsmall, x,y,z, j,k, icount
       integer, allocatable :: size0(:), mito_location(:,:), size1(:), mito_location1(:,:),mit2clu(:), if_cut(:)
       integer :: cristae_thresh, scolor_thresh, color_thresh, nuc_thresh
+      integer :: mxslice_default, mxslice
+      integer, allocatable :: areas_label(:,:),nslice_label(:)
+      real(8),allocatable :: perimeter(:,:),ferret_max(:,:),ferret_min(:,:)
+! For Ellipse
+      real(8), allocatable :: normal(:,:) ! normal vector direction for each mitochondria
+      real(8), allocatable :: angle(:) ! angle between each mitochondrial normal vector and myofibril fiber vector
+      real(8), allocatable :: ellipse(:,:) ! 1: long axis, 2: short axis, 3: eccentricity of the mitochondria
+      real(8), allocatable :: evalue(:,:)  ! 3 eigenvalues of the principal vectors of the mitochondria
+      real(8) :: myo_vec(3) !myofibril fiber direction vector 
 
       character(100) filehead, filename
 !c#######################################################################
@@ -156,36 +166,90 @@
       mark = mark + mask*mark0 ! superimpose large subdevided mito (mark) and already devided small mitochondria (mark0)
       call size_check(mark, width,height,depth, size_thresh, size1, 1, nuc1, mito_location1)
 
-      filehead = './mark_subdivide/'
+      filehead = '../cell_division_20191212_brightness_controlled/mark_subdivide/'
       call write_bmp(depth, mark, filehead)
       call write_color(width, height, depth, mark, filehead) ! 
 
-!!$      nuc1 = 1106
+!!$      nuc1 = 1059
+!!$      size_thresh = 1000
 !!$      allocate(size1(nuc1),mito_location1(3,nuc1))
 !!$      call read_color(width, height, depth, mark, filehead)
 !!$      call size_check(mark, width,height,depth, size_thresh, size1, 1, nuc1, mito_location1)
       write(*,*) 'max',maxval(mark),'nuc1',nuc1
       write(*,*) 'min',minval(mark) !for dbg
-      count = 0
+      icount = 0
       ! clean pixcels
       do k = 1, depth
          do j = 1, height
             do i = 1, width
                if( mark(i, j, k) .gt. nuc1)then
                   write(*,*) 'error pixel', i,j,k,mark(i,j,k)
-                  count = count + 1
+                  icount = icount + 1
                   mark(i,j,k) = 0
                end if
             end do
          end do
       end do
-      write(*,*) 'error num', count
+      write(*,*) 'error num', icount
 
       ! check if the mito is cut by the volume edge, because cut mito should be excluded by the size analysis
       allocate(if_cut(0:nuc1))
       call check_if_cut(mark, width, height, depth, if_cut, nuc1)
       write(*,*) 'if_cut made'
 
+      mxslice_default = 500
+      allocate(areas_label(mxslice_default,nuc1),nslice_label(nuc1))
+      nslice_label = 0
+      write(*,*) "alocation done"
+      call extract_edge(width,height,depth,mark,edge,areas_label,mxslice_default,nslice_label,nuc1)
+      mxslice = maxval(nslice_label)
+      if(mxslice > mxslice_default)then
+         write(*,*)"error mxslice too large",mxslice, mxslice_default
+         stop
+      end if
+      filehead = './edge/'
+      call write_bmp(depth, edge, filehead)
+!!$      call write_color(width, height, depth, edge, filehead) ! 
+!!$      call read_color(width, height, depth, edge, filehead) ! 
+      
+      allocate(perimeter(mxslice,nuc1),ferret_max(mxslice,nuc1),ferret_min(mxslice,nuc1))
+      call calc_perimeter_diameter(width,height,depth,edge,mxslice,nslice_label,perimeter,ferret_max,ferret_min,nuc1)
+
+      open(15, file = 'mito_area_perimeter_analysis.out')
+      icount = 0
+      write(15,'(a)') 'units  are pixel base'
+      write(15,'(4a10,4a15)') 'counter', 'mit_num', 'slice_num', 'area','perimeter','ferret_min','ferret_max'
+      do i = 1, nuc1
+         if(if_cut(i) .eq. 0)then
+            do j = 1, nslice_label(i)
+               icount = icount + 1
+               write(15,'(4(2x,i8),3(x,f14.6))') icount, i, j, areas_label(j,i),perimeter(j,i),ferret_min(j,i), ferret_max(j,i)
+            end do
+         end if
+      end do
+      write(*,*) "num mito area evaluated = ",icount
+      close(15)
+
+      allocate(normal(3,nuc1), angle(nuc1), ellipse(3,nuc1), evalue(3,nuc1))
+!      real(8), allocatable :: normal(:,:) ! normal vector direction for each mitochondria
+!      real(8), allocatable :: angle(:) ! angle between each mitochondrial normal vector and myofibril fiber vector
+!      real(8), allocatable :: ellipse(:,:) ! 1: long axis, 2: short axis, 3: eccentricity of the mitochondria
+!      real(8) myo_vec(3) !myofibril fiber direction vector 
+!!$      myo_vec = (/ 0.273, 0.880, 0.388/)
+!!$      myo_vec = (/ 0.3338, 0.8216, 0.4621/)
+      myo_vec = (/ 0.273302D0, 0.881151D0, 0.385849D0 /)
+
+      call ellipse_fitting(width, height, depth, edge, if_cut, myo_vec, nuc1, normal, angle, ellipse, evalue)
+      open(15, file = 'ellipse_myovec3.out')
+      write(15,'(2a10,13a15)') 'counter', 'mito-num','normal-x','normal-y','normal-z','angle','long axis', 'short axis', 'eccentricity', 'eigenval 1', 'eigenval 2', 'eigenval 3'
+      icount = 0
+      do i = 1, nuc1
+         if(if_cut(i) .eq. 0)then
+            icount = icount + 1
+            write(15,'(2(2x,i8),13(x,f14.6))') icount, i, normal(1:3,i), angle(i),ellipse(1:3,i), evalue(1:3,i)
+         end if
+      end do
+      
 !Cluster Analysis
       allocate(mit2clu(nuc1))
       call cluster_analysis(width,height,depth, cluster, nuc1,mark,mito_location1, size1, nclu,mit2clu, if_cut)
@@ -203,7 +267,285 @@
       close(15)
 
       stop
-      end program
+    end program main
+
+!################################################################################################################################
+      subroutine ellipse_fitting(width, height, depth, edge, if_cut, myo_vec, nuc, normal, angle, ellipse, evalue)
+        use jacobi
+        implicit none
+        integer :: width, height, depth, edge(width,height,depth) ,nuc, if_cut(nuc)
+        real(8) :: myo_vec(3),normal(3,nuc),angle(nuc),ellipse(3,nuc), evalue(3,nuc)
+        integer :: npoints(nuc)
+        real(8) :: coords(3,110000,nuc), coval(3,3), center(3,nuc), eval(3), evec(3,3), tvec(3), coeff(2,2), rside(2), det, axisa, axisb, tmp
+        integer :: x,y,z,i,j,k,isize,iout,imito
+        character(100) :: filename
+        character(4) str
+        
+        !normalize myo_vec
+        tmp=0.d0
+        do i = 1,3
+           tmp = tmp+ myo_vec(i)**2
+        end do
+        myo_vec(1:3) = myo_vec(1:3)/sqrt(tmp)
+
+        coords = 0
+        center = 0.D0
+        do z = 1, depth
+        do y = 1, height
+        do x = 1, width
+           if(edge(x,y,z) .gt. 0)then
+              imito = edge(x,y,z)
+              npoints(imito) = npoints(imito) + 1
+              coords(1,npoints(imito),imito) = dble(x)
+              coords(2,npoints(imito),imito) = dble(y)
+              coords(3,npoints(imito),imito) = dble(z)*5.d0
+              center(1,imito) = center(1,imito) + dble(x)
+              center(2,imito) = center(2,imito) + dble(y)
+              center(3,imito) = center(3,imito) + dble(z)*5.d0
+           end if
+        end do
+        end do
+        end do
+        write(*,*) 'maximum npoints per mito is', maxval(npoints)
+        if(maxval(npoints) .gt. 110000)then
+           stop
+        end if
+        do i =1, nuc ! for every mitochondria
+           write(*,*) 'ellipse loop',i
+           ! Find the principal axis by finding eigen vectors of covariance matrix of the surface(edge) points
+           ! center(1:3,i) ith mitochondrial center points. simple average of the coordinates
+           ! coords are subtracted center, to make the distribution around the origin of coordinates
+           center(1:3,i) = center(1:3,i)/dble(npoints(i))
+           coval = 0.D0
+           do j = 1, npoints(i)
+              coords(1,j,i) = coords(1,j,i)-center(1,i)
+              coords(2,j,i) = coords(2,j,i)-center(2,i)
+              coords(3,j,i) = coords(3,j,i)-center(3,i)
+              coval(1,1) = coval(1,1) + coords(1,j,i)**2
+              coval(2,2) = coval(2,2) + coords(2,j,i)**2
+              coval(3,3) = coval(3,3) + coords(3,j,i)**2
+              coval(1,2) = coval(1,2) + coords(1,j,i)*coords(2,j,i)
+              coval(1,3) = coval(1,3) + coords(1,j,i)*coords(3,j,i)
+              coval(2,3) = coval(2,3) + coords(2,j,i)*coords(3,j,i)
+           end do
+           coval = coval/dble(npoints(i))
+           coval(2,1) = coval(1,2)
+           coval(3,1) = coval(1,3)
+           coval(3,2) = coval(2,3)
+           ! Jacobi method to calculate eigen vectors
+           call jacobi_calcEigen(eval, evec, coval, 3)
+           normal(1:3,i) = evec(1:3,1) ! first principal engenvector is the principal axis
+           evalue(1:3,i) = eval(1:3)
+           ! ROTATION to the normal directions
+           write(str,'(i4.4)')i
+           filename = 'axis'//str//'.txt'
+           open(20,file=filename)
+           do j = 1, npoints(i)
+              tvec = 0.D0
+              do k = 1, 3
+                 tvec(k) = evec(1,k)*coords(1,j,i)+ evec(2,k)*coords(2,j,i)+ evec(3,k)*coords(3,j,i)
+              end do
+              coords(1:3,j,i) = tvec(1:3)
+              write(20,'(3e14.6)') coords(1:3,j,i)
+           end do
+           close(20)
+!!$           stop
+           ! ellipse fitting
+           coeff = 0.d0
+           rside = 0.D0
+           do j = 1, npoints(i)
+              coeff(1,1) = coeff(1,1) + coords(1,j,i)**4
+              coeff(1,2) = coeff(1,2) + coords(1,j,i)**2 * (coords(2,j,i)**2 + coords(3,j,i)**2)
+              coeff(2,2) = coeff(2,2) + (coords(2,j,i)**2 + coords(3,j,i)**2)**2
+              rside(1)   = rside(1)   + coords(1,j,i)**2
+              rside(2)   = rside(2)   + coords(2,j,i)**2 + coords(3,j,i)**2
+           end do
+           det = coeff(1,1)*coeff(2,2)-coeff(1,2)**2
+           if(abs(det) .lt. 1.d-30)then
+              write(*,*) "mito",i,"det = 0", det
+              exit
+           end if
+           coeff = coeff/det
+           coeff(2,1) = coeff(2,2) !exchange 1,1 and 2,2  using2,1 as temporary box
+           coeff(2,2) = coeff(1,1)
+           coeff(1,1) = coeff(2,1)
+           coeff(1,2) = -coeff(1,2)
+           coeff(2,1) = coeff(1,2)
+           axisa = coeff(1,1)*rside(1)+coeff(1,2)*rside(2)
+           axisb = coeff(2,1)*rside(1)+coeff(2,2)*rside(2)
+           axisa = 1.D0 / sqrt(axisa)
+           axisb = 1.D0 / sqrt(axisb)
+           ellipse(1,i) = axisa
+           ellipse(2,i) = axisb
+           ellipse(3,i) = axisb/axisa
+           angle(i) = acos( abs(evec(1,1)*myo_vec(1)+evec(2,1)*myo_vec(2)+evec(3,1)*myo_vec(3))/ (evec(1,1)**2+evec(2,1)**2+evec(3,1)**2))
+        end do
+        return
+      end subroutine ellipse_fitting
+!################################################################################################################################
+      subroutine extract_edge(width,height,depth,mark,edge,areas_label,mxslice,nslice_label,nuc)
+        implicit none
+        integer :: width, height, depth, mark(width,height,depth), edge(width,height,depth),nuc
+        integer :: mxslice, areas_label(mxslice,nuc),nslice_label(nuc)
+
+        integer :: x,y,z,i,j,k,isize,iout,ilabel
+        
+!Depth First Search
+! Initially nmark contains parent pixel number
+! 6 direction search
+      edge = -mark
+      ilabel = 0
+      do z = 1, depth
+      do y = 1, height
+      do x = 1, width
+         if(edge(x,y,z) .lt. 0)then 
+            ilabel = mark(x,y,z)
+!!$            write(*,*) "slice", z, "ilabel",ilabel
+            isize = 0
+            iout = 0
+            call DFSedge(mark,edge,x,y,z,width,height,depth,ilabel,isize,iout)
+!!$            write(*,*) "ilabel, isize",ilabel, isize
+            nslice_label(ilabel) = nslice_label(ilabel) +1
+            areas_label(nslice_label(ilabel),ilabel) = isize
+         end if
+      end do
+      end do
+      end do
+      
+      return
+      end
+
+!################################################################################################################################
+      RECURSIVE subroutine DFSedge(mark,edge,x,y,z,width,height,depth, ilabel,isize, iout)
+      implicit none
+      integer :: width, height, depth, mark(width,height,depth),edge(width,height,depth)
+      integer :: ilabel,x,y,z, isize, iout, iout1,iout2,iout3,iout4
+
+      if(  x.le.0 .or. x.gt.width .or. &
+           y.le.0 .or. y.gt.height .or. &
+           z.le.0 .or. z.gt.depth)then ! out of boundary, return the signal of edge
+         iout = 1
+         return
+      else if(mark(x,y,z) .ne. ilabel)then ! not in a targeted mitochondria, return the signal of edge
+         iout = 1
+         return
+      else if(edge(x,y,z) .ge. 0)then ! inside targeted mito but already checked, do nothing and just return to stop proceeding this direction
+         iout = 0
+         return
+      else ! inside targeted mito and not checked yet, search 4 directions
+         isize = isize + 1
+         edge(x,y,z) = 0
+         call DFSedge(mark,edge,x+1,y,z,width, height, depth, ilabel,isize,iout1)
+         call DFSedge(mark,edge,x-1,y,z,width, height, depth, ilabel,isize,iout2)
+         call DFSedge(mark,edge,x,y+1,z,width, height, depth, ilabel,isize,iout3)
+         call DFSedge(mark,edge,x,y-1,z,width, height, depth, ilabel,isize,iout4)
+         iout = iout1+iout2+iout3+iout4
+         if(iout > 0)then ! if there is edge signal in nearest 4, this is an edge pixcel
+            edge(x,y,z) = ilabel
+!!$            write(*,*) 'edge',x,y,z,ilabel
+         else
+            edge(x,y,z) = 0
+!!$            write(*,*) 'inside',x,y,z,ilabel
+         end if
+         iout = 0 ! return the signal that this pixcel is inside.
+         return
+      end if
+      return
+    end subroutine DFSedge
+        
+!################################################################################################################################
+    subroutine calc_perimeter_diameter(width,height,depth,edge,mxslice,nslice_label,perimeter,ferret_max,ferret_min, nuc)
+      implicit none
+      integer :: width, height, depth, edge(width,height,depth),mxslice, nuc,nslice_label(nuc)
+      real(8) :: perimeter(mxslice,nuc),ferret_max(mxslice,nuc),ferret_min(mxslice,nuc)
+      integer :: ilabel,x,y,z, sum_len(2), diameter, iflag(width,height,depth),ilen_flag
+      integer,parameter :: nangle = 36 ! angles changes by 10 degrees , thus 360/10 = nangle
+      real(8) :: len_degree(2,nangle) ! max and min coords when the normal vector is at the angle
+      real(8) :: dist_degree(nangle) ! distance when the cariper is fitted on the angle
+
+      nslice_label = 0
+      iflag = edge
+      do z = 1, depth
+      do y = 1, height-1
+      do x = 1, width-1
+         if(iflag(x,y,z) .gt. 0)then 
+            ilabel = iflag(x,y,z)
+            iflag(x,y,z) = 0
+            sum_len = 0
+            len_degree(1,1:nangle) =  2000.0 ! min is initialized with a large value
+            len_degree(2,1:nangle) = -2000.0 ! max is initialized with a small value
+            if(iflag(x+1,y,z) .gt.0)then
+               ilen_flag = 1
+               call rec_length_calc(iflag,x+1,y,z,width,height,depth,ilabel,sum_len,ilen_flag, len_degree,nangle)
+            else if(iflag(x,y+1,z) .gt.0)then
+               ilen_flag = 1
+               call rec_length_calc(iflag,x,y+1,z,width,height,depth,ilabel,sum_len,ilen_flag, len_degree,nangle)
+            else if(iflag(x+1,y+1,z) .gt.0)then
+               ilen_flag = 2
+               call rec_length_calc(iflag,x+1,y+1,z,width,height,depth,ilabel,sum_len,ilen_flag, len_degree,nangle)
+            else
+!               write(*,*) "error, edge is only a point", ilabel, z
+            end if
+            if(sum_len(1)+sum_len(2) .gt. 0)then
+               nslice_label(ilabel) = nslice_label(ilabel)+1
+!!$               write(*,*) 'slice',z,'nslice_label', nslice_label(ilabel)
+               perimeter(nslice_label(ilabel),ilabel) = dble(sum_len(1))*1.0 + dble(sum_len(2))*1.41421356
+               dist_degree(1:nangle) = len_degree(2,1:nangle) - len_degree(1,1:nangle)
+!!$               write(*,*) 'ferret check'
+!!$               do i = 1, nangle
+!!$                  write(*,*)len_degree(1:2,i),dist_degree(i)
+!!$               end do
+               ferret_max(nslice_label(ilabel),ilabel) = maxval(dist_degree)
+               ferret_min(nslice_label(ilabel),ilabel) = minval(dist_degree)
+!               write(*,'(a,i8,i8, 3f14.6)') 'slice, ilabel, nslice, perimeter', z, ilabel, nslice_label(ilabel), perimeter(nslice_label(ilabel),ilabel), ferret_min(nslice_label(ilabel),ilabel), ferret_max(nslice_label(ilabel),ilabel)
+            end if
+         end if
+      end do
+      end do
+      end do
+      write(*,*)'perimeter_done'
+      return
+    end subroutine calc_perimeter_diameter
+
+!################################################################################################################################
+      RECURSIVE subroutine rec_length_calc(iflag,x,y,z,width,height,depth,ilabel,sum_len,ilen_flag,len_degree,nangle)
+      implicit none
+      integer :: width, height, depth, iflag(width,height,depth), nangle
+      integer :: ilabel,x,y,z, ilen_flag,sum_len(2), i
+      real(8) :: len_degree(2,nangle), norm(2),dist
+      real(8) :: PI = 3.141592D0
+
+      if(  x.le.0 .or. x.gt.width .or. &
+           y.le.0 .or. y.gt.height .or. &
+           z.le.0 .or. z.gt.depth)then ! out of boundary
+         return
+      else if(iflag(x,y,z) .ne. ilabel)then ! not a edge pixel, or already marked
+         return
+      else ! if find a next pixel
+         iflag(x,y,z) = 0
+         sum_len(ilen_flag) = sum_len(ilen_flag) + 1
+         do i = 1, nangle
+            norm(1) = cos(PI*2.0*dble(i-1)/dble(nangle))
+            norm(2) = sin(PI*2.0*dble(i-1)/dble(nangle))
+            dist = dble(x)*norm(1)+dble(y)*norm(2)
+            if(dist .lt. len_degree(1,i)) len_degree(1,i) = dist ! find minimum
+            if(dist .gt. len_degree(2,i)) len_degree(2,i) = dist ! find maximum
+         end do
+         ilen_flag = 1
+         call rec_length_calc(iflag,x+1,y  ,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x-1,y  ,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x  ,y+1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x  ,y-1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         ilen_flag = 2
+         call rec_length_calc(iflag,x+1,y+1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x+1,y-1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x-1,y+1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         call rec_length_calc(iflag,x-1,y-1,z,width, height, depth, ilabel,sum_len,ilen_flag,len_degree,nangle)
+         return
+      end if
+      return
+    end subroutine rec_length_calc
+
 
 !################################################################################################################################
       subroutine check_if_cut(mark, width, height, depth, if_cut, nuc)

@@ -1,11 +1,10 @@
 FC	= ifort
 F_OPT	= -mcmodel=medium -shared-intel -fpic
 
-.SUFFIXES: .f90 .o
+.SUFFIXES: .f90 .f .o
 
-OBJ_F	= marker_contourOut14.o bmp_out.o #tif_out.o
-
-TARGET_F	= marker
+OBJ_F	=  jacobi.o bmp_out.o marker_contourOut14_ellipse3.o
+TARGET_F	= ellipse
 
 
 $(TARGET_F):$(OBJ_F)

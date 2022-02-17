@@ -4,8 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 import os
 
-#srcDir = 'D:/cell_division/5_2/for_color2txt'
-srcDir = 'D:/someya_work/AA3_3Dmodel/cell_division/template_for_GitHub'
+srcDir = 'D:/cell_division/for_color2txt'
 dirlist = []
 for f in os.listdir(srcDir):
     if os.path.isdir(os.path.join(srcDir, f)):

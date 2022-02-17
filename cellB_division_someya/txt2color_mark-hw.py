@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image, ImageDraw
 import os
 
-srcDir = 'D:/cell_division/5_2/txt2color'
+srcDir = 'D:/cell_division/txt2color'
 dirlist = []
 filelist1 = []
 for root, dirs, files in os.walk(os.path.join(srcDir, 'mark_txt')):
@@ -39,10 +39,4 @@ for j in range(1, n_txt+1):
 	           img[i].putpixel((x,y),(0,0,0))
     for i in range(0,n256):
            img[i].save('mark{:01d}/p{:03d}.png'.format(i,j), fmt='%s')
-#       if j < 10:
-#           img[i].save('mark'+str(i)+'/p00'+str(j)+'.png', fmt='%s')
-#       elif j < 100:
-#           img[i].save('mark'+str(i)+'/p0'+str(j)+'.png', fmt='%s')
-#       elif j < 1000:
-#           img[i].save('mark'+str(i)+'/p'+str(j)+'.png', fmt='%s')
 print(g_max)
